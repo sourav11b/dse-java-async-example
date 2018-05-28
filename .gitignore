@@ -1,5 +1,12 @@
 # Object file
 *.o
+*.classpath
+*.project
 
 # Ada Library Information
 *.ali
+
+/target
+/.mvn
+/.settings
+/gradle

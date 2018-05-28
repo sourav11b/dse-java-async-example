@@ -1,0 +1,8 @@
+---
+applications:
+- name: java-async-rest-service
+  memory: 256M
+  instances: 1
+  host: rest-service
+  domain: guides.spring.io
+  path: build/libs/java-async-rest-service-1.0.0-SNAPSHOT.jar
