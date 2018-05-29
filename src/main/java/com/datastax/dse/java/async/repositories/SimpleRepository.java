@@ -3,10 +3,12 @@ package com.datastax.dse.java.async.repositories;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.Executors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.context.request.async.DeferredResult;
 
@@ -38,15 +40,13 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 
 public class SimpleRepository {
-	
+
 	@Autowired
 	DseCluster cluster;
 
-	
 	public void select(DeferredResult<ResponseEntity<?>> deferredResult, String query) {
 		final List<String> results = new ArrayList<String>();
 
-		
 		ListenableFuture<Session> session = cluster.connectAsync();
 
 		ListenableFuture<ResultSet> resultSet = Futures.transformAsync(session,
@@ -59,27 +59,112 @@ public class SimpleRepository {
 					}
 				});
 
-		// Futures.addCallback(resultSet, new FutureCallback<ResultSet>() {
-		// public void onSuccess(ResultSet resultSet) {
-		// System.out.println(" start printing");
-		//
-		// resultSet.forEach(row
-		// ->{System.out.println("print");System.out.println(row);} );
-		// }
-		//
-		// public void onFailure(Throwable t) {
-		// System.out.printf("Failed to retrieve the version: %s%n",
-		// t.getMessage());
-		// }
-		// });
+		Futures.addCallback(resultSet, new FutureCallback<ResultSet>() {
+			public void onSuccess(ResultSet resultSet) {
+
+			}
+
+			public void onFailure(Throwable t) {
+				System.out.printf("Failed " + t.getMessage());
+				deferredResult.setResult(ResponseEntity.ok(t.getMessage()));
+
+			}
+		});
+
+		Futures.addCallback(session, new FutureCallback<Session>() {
+			public void onSuccess(Session session) {
+
+			}
+
+			public void onFailure(Throwable t) {
+				System.out.printf("Failed " + t.getMessage());
+				deferredResult.setResult(ResponseEntity.ok(t.getMessage()));
+
+			}
+		});
 
 		Futures.transformAsync(resultSet, iterate(10, deferredResult, results), Executors.newCachedThreadPool());
 		System.out.println(Thread.currentThread().getName() + "Done with main thread");
 
 	}
-	
+
+	@Async
+	public void selectSync(DeferredResult<ResponseEntity<?>> deferredResult, String query) {
+		final List<String> results = new ArrayList<String>();
+
+		DseSession session = cluster.connect();
+		ResultSet resultSet = session.execute(new SimpleStatement(query).setFetchSize(20));
+
+		for (Row row : resultSet) {
+			results.add(row.toString());
+
+		}
+
+		deferredResult.setResult(ResponseEntity.ok(results));
+
+		System.out.println(Thread.currentThread().getName() + "Done with main thread");
+
+	}
+
+	public void selectWithPK(DeferredResult<ResponseEntity<?>> deferredResult, String pk) {
+
+		final List<String> results = new ArrayList<String>();
+
+		ListenableFuture<Session> session = cluster.connectAsync();
+
+		Futures.transformAsync(session, new AsyncFunction<Session, ResultSet>() {
+			public ListenableFuture<ResultSet> apply(Session session) throws Exception {
+				System.out.println(Thread.currentThread().getName() + "preparing statement");
+
+				ListenableFuture<PreparedStatement> prepared = session
+						.prepareAsync("select * from java_sample.simple_table where id=?");
+
+				Futures.transformAsync(prepared, new AsyncFunction<PreparedStatement, ResultSet>() {
+					public ListenableFuture<ResultSet> apply(PreparedStatement statement) throws Exception {
+						System.out.println(Thread.currentThread().getName() + "executing statement");
+
+						ListenableFuture<ResultSet> resultSet = session
+								.executeAsync(statement.bind(UUID.fromString(pk)));
+						Futures.transformAsync(resultSet, iterate(10, deferredResult, results),
+								Executors.newCachedThreadPool());
+
+						Futures.addCallback(resultSet, new FutureCallback<ResultSet>() {
+							@Override
+							public void onSuccess(ResultSet result) {
+								System.out.println("success");
+							}
+
+							@Override
+							public void onFailure(Throwable t) {
+								System.out.println("1" + t);
+								deferredResult.setResult(ResponseEntity.ok(t.getMessage()));
+
+							}
+						}, Executors.newCachedThreadPool());
+						return null;
+					}
+				});
+
+				return null;
+
+			}
+		});
+		System.out.println(Thread.currentThread().getName() + "Done with main thread");
+		Futures.addCallback(session, new FutureCallback<Session>() {
+			@Override
+			public void onSuccess(Session result) {
+				System.out.println("success");
+			}
+
+			@Override
+			public void onFailure(Throwable t) {
+				System.out.println("1" + t);
+
+			}
+		}, Executors.newCachedThreadPool());
+	}
+
 	public void insertOne(DeferredResult<ResponseEntity<?>> deferredResult, SimpleTable row) {
-	
 
 		ListenableFuture<Session> session = cluster.connectAsync();
 
@@ -89,30 +174,68 @@ public class SimpleRepository {
 
 				ListenableFuture<PreparedStatement> prepared = session
 						.prepareAsync("insert into java_sample.simple_table(id,name, description) values (?,?, ?)");
-			
-					
+
 				Futures.transformAsync(prepared, new AsyncFunction<PreparedStatement, ResultSet>() {
 					public ListenableFuture<ResultSet> apply(PreparedStatement statement) throws Exception {
 						System.out.println(Thread.currentThread().getName() + "preparing statement");
-						
-						ListenableFuture<ResultSet>  id = session.executeAsync(statement.bind(UUIDs.random(),row.getName(),row.getDescription()));
+
+						ListenableFuture<ResultSet> id = session
+								.executeAsync(statement.bind(UUIDs.random(), row.getName(), row.getDescription()));
+						Futures.addCallback(id, new FutureCallback<ResultSet>() {
+							@Override
+							public void onSuccess(ResultSet result) {
+								System.out.println("success");
+							}
+
+							@Override
+							public void onFailure(Throwable t) {
+								System.out.println("1" + t);
+								deferredResult.setResult(ResponseEntity.ok(t.getMessage()));
+
+							}
+						}, Executors.newCachedThreadPool());
+
 						deferredResult.setResult(ResponseEntity.ok(id.get()));
 
 						return null;
 					}
 				});
-				
-			
+
+				Futures.addCallback(prepared, new FutureCallback<PreparedStatement>() {
+					@Override
+					public void onSuccess(PreparedStatement result) {
+						System.out.println("success");
+					}
+
+					@Override
+					public void onFailure(Throwable t) {
+						System.out.println("1" + t);
+
+					}
+				}, Executors.newCachedThreadPool());
 
 				return null;
 
 			}
+
 		});
+
+		Futures.addCallback(session, new FutureCallback<Session>() {
+			@Override
+			public void onSuccess(Session result) {
+				System.out.println("success");
+			}
+
+			@Override
+			public void onFailure(Throwable t) {
+				System.out.println("1" + t);
+
+			}
+		}, Executors.newCachedThreadPool());
 	}
 
-
 	public void insertMany(DeferredResult<ResponseEntity<?>> deferredResult, SimpleTables rows) {
-		
+
 		ListenableFuture<Session> session = cluster.connectAsync();
 
 		Futures.transformAsync(session, new AsyncFunction<Session, ResultSet>() {

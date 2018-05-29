@@ -38,10 +38,26 @@ public class AsyncController {
 	@Autowired
 	SimpleRepository simpleRepository;
 
+	@RequestMapping("/selectSync")
+	public DeferredResult<ResponseEntity<?>> selectSync(@RequestParam("query") String query) {
 
+		System.out.println("Query " + query);
 
-	@RequestMapping("/select")
-	public DeferredResult<ResponseEntity<?>> select(@RequestParam("query") String query) {
+		final DeferredResult<ResponseEntity<?>> deferredResult = new DeferredResult<ResponseEntity<?>>(5000l);
+		deferredResult.onTimeout(new Runnable() {
+
+			public void run() { // Retry on timeout
+				deferredResult.setErrorResult(
+						ResponseEntity.status(HttpStatus.REQUEST_TIMEOUT).body("Request timeout occurred."));
+			}
+		});
+		
+		simpleRepository.selectSync(deferredResult, query);
+		return deferredResult;
+	}
+
+	@RequestMapping("/selectAll")
+	public DeferredResult<ResponseEntity<?>> selectAll(@RequestParam("query") String query) {
 
 		System.out.println("Query " + query);
 
@@ -57,6 +73,26 @@ public class AsyncController {
 		simpleRepository.select(deferredResult, query);
 		return deferredResult;
 	}
+	
+	@RequestMapping("/select")
+	public DeferredResult<ResponseEntity<?>> select(@RequestParam("pk") String pk) {
+
+		System.out.println("PK " + pk);
+
+		final DeferredResult<ResponseEntity<?>> deferredResult = new DeferredResult<ResponseEntity<?>>(5000l);
+		deferredResult.onTimeout(new Runnable() {
+
+			public void run() { // Retry on timeout
+				deferredResult.setErrorResult(
+						ResponseEntity.status(HttpStatus.REQUEST_TIMEOUT).body("Request timeout occurred."));
+			}
+		});
+		
+		simpleRepository.selectWithPK(deferredResult, pk);;
+		return deferredResult;
+	}
+	
+	
 
 	@RequestMapping(value = "/insertOne", method = RequestMethod.POST)
 	public DeferredResult<ResponseEntity<?>> insertOne(@RequestBody final SimpleTable row) {
