@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Async;
@@ -22,6 +24,7 @@ import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.QueryTrace;
 import com.datastax.driver.core.QueryTrace.Event;
 import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.ResultSetFuture;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.SimpleStatement;
@@ -44,20 +47,29 @@ public class SimpleRepository {
 	@Autowired
 	DseCluster cluster;
 
-	public void select(DeferredResult<ResponseEntity<?>> deferredResult, String query) {
+	@Autowired
+	DseSession session;
+
+	@Autowired
+	PreparedStatement simpleInsertPS;
+
+	@Autowired
+	PreparedStatement simpleSelectByPKPS;
+
+	static Logger logger = LoggerFactory.getLogger(SimpleRepository.class);
+
+	public void selectUsingQueryParam(DeferredResult<ResponseEntity<?>> deferredResult, String query) {
+
+		logger.info("Starting select");
+
 		final List<String> results = new ArrayList<String>();
 
-		ListenableFuture<Session> session = cluster.connectAsync();
+		logger.info("Creating statement with fetch size");
+		Statement statement = new SimpleStatement(query).setFetchSize(20);
 
-		ListenableFuture<ResultSet> resultSet = Futures.transformAsync(session,
-				new AsyncFunction<Session, ResultSet>() {
-					public ListenableFuture<ResultSet> apply(Session session) throws Exception {
-						System.out.println(Thread.currentThread().getName() + "fetching");
-						Statement statement = new SimpleStatement(query).setFetchSize(20);
+		ResultSetFuture resultSet = session.executeAsync(statement);
 
-						return session.executeAsync(statement);
-					}
-				});
+		logger.info("Adding callback to record exception in response");
 
 		Futures.addCallback(resultSet, new FutureCallback<ResultSet>() {
 			public void onSuccess(ResultSet resultSet) {
@@ -65,36 +77,24 @@ public class SimpleRepository {
 			}
 
 			public void onFailure(Throwable t) {
-				System.out.printf("Failed " + t.getMessage());
-				deferredResult.setResult(ResponseEntity.ok(t.getMessage()));
+				logger.error("Error during processing resultSet", t);
 
-			}
-		});
-
-		Futures.addCallback(session, new FutureCallback<Session>() {
-			public void onSuccess(Session session) {
-
-			}
-
-			public void onFailure(Throwable t) {
-				System.out.printf("Failed " + t.getMessage());
 				deferredResult.setResult(ResponseEntity.ok(t.getMessage()));
 
 			}
 		});
 
 		Futures.transformAsync(resultSet, iterate(10, deferredResult, results), Executors.newCachedThreadPool());
-		System.out.println(Thread.currentThread().getName() + "Done with main thread");
+		logger.info("Done with main thread");
 
 	}
 
 	@Async
-	public void selectSync(DeferredResult<ResponseEntity<?>> deferredResult, String query) {
+	public void syncSelectUsingQueryParam(DeferredResult<ResponseEntity<?>> deferredResult, String query) {
 		final List<String> results = new ArrayList<String>();
 
 		DseSession session = cluster.connect();
 		ResultSet resultSet = session.execute(new SimpleStatement(query).setFetchSize(20));
-
 		for (Row row : resultSet) {
 			results.add(row.toString());
 
@@ -102,7 +102,7 @@ public class SimpleRepository {
 
 		deferredResult.setResult(ResponseEntity.ok(results));
 
-		System.out.println(Thread.currentThread().getName() + "Done with main thread");
+		System.out.println(Thread.currentThread().getName() + "Done with syncSelectUsingQueryParam");
 
 	}
 
@@ -110,204 +110,134 @@ public class SimpleRepository {
 
 		final List<String> results = new ArrayList<String>();
 
-		ListenableFuture<Session> session = cluster.connectAsync();
+		ListenableFuture<ResultSet> resultSet = session.executeAsync(simpleSelectByPKPS.bind(UUID.fromString(pk)));
+		Futures.transformAsync(resultSet, iterate(10, deferredResult, results), Executors.newCachedThreadPool());
 
-		Futures.transformAsync(session, new AsyncFunction<Session, ResultSet>() {
-			public ListenableFuture<ResultSet> apply(Session session) throws Exception {
-				System.out.println(Thread.currentThread().getName() + "preparing statement");
-
-				ListenableFuture<PreparedStatement> prepared = session
-						.prepareAsync("select * from java_sample.simple_table where id=?");
-
-				Futures.transformAsync(prepared, new AsyncFunction<PreparedStatement, ResultSet>() {
-					public ListenableFuture<ResultSet> apply(PreparedStatement statement) throws Exception {
-						System.out.println(Thread.currentThread().getName() + "executing statement");
-
-						ListenableFuture<ResultSet> resultSet = session
-								.executeAsync(statement.bind(UUID.fromString(pk)));
-						Futures.transformAsync(resultSet, iterate(10, deferredResult, results),
-								Executors.newCachedThreadPool());
-
-						Futures.addCallback(resultSet, new FutureCallback<ResultSet>() {
-							@Override
-							public void onSuccess(ResultSet result) {
-								System.out.println("success");
-							}
-
-							@Override
-							public void onFailure(Throwable t) {
-								System.out.println("1" + t);
-								deferredResult.setResult(ResponseEntity.ok(t.getMessage()));
-
-							}
-						}, Executors.newCachedThreadPool());
-						return null;
-					}
-				});
-
-				return null;
-
-			}
-		});
-		System.out.println(Thread.currentThread().getName() + "Done with main thread");
-		Futures.addCallback(session, new FutureCallback<Session>() {
+		Futures.addCallback(resultSet, new FutureCallback<ResultSet>() {
 			@Override
-			public void onSuccess(Session result) {
+			public void onSuccess(ResultSet result) {
 				System.out.println("success");
 			}
 
 			@Override
 			public void onFailure(Throwable t) {
 				System.out.println("1" + t);
-
-			}
-		}, Executors.newCachedThreadPool());
-	}
-
-	public void insertOne(DeferredResult<ResponseEntity<?>> deferredResult, SimpleTable row) {
-
-		ListenableFuture<Session> session = cluster.connectAsync();
-
-		Futures.transformAsync(session, new AsyncFunction<Session, ResultSet>() {
-			public ListenableFuture<ResultSet> apply(Session session) throws Exception {
-				System.out.println(Thread.currentThread().getName() + "preparing statement");
-
-				ListenableFuture<PreparedStatement> prepared = session
-						.prepareAsync("insert into java_sample.simple_table(id,name, description) values (?,?, ?)");
-
-				Futures.transformAsync(prepared, new AsyncFunction<PreparedStatement, ResultSet>() {
-					public ListenableFuture<ResultSet> apply(PreparedStatement statement) throws Exception {
-						System.out.println(Thread.currentThread().getName() + "preparing statement");
-
-						ListenableFuture<ResultSet> id = session
-								.executeAsync(statement.bind(UUIDs.random(), row.getName(), row.getDescription()));
-						Futures.addCallback(id, new FutureCallback<ResultSet>() {
-							@Override
-							public void onSuccess(ResultSet result) {
-								System.out.println("success");
-							}
-
-							@Override
-							public void onFailure(Throwable t) {
-								System.out.println("1" + t);
-								deferredResult.setResult(ResponseEntity.ok(t.getMessage()));
-
-							}
-						}, Executors.newCachedThreadPool());
-
-						deferredResult.setResult(ResponseEntity.ok(id.get()));
-
-						return null;
-					}
-				});
-
-				Futures.addCallback(prepared, new FutureCallback<PreparedStatement>() {
-					@Override
-					public void onSuccess(PreparedStatement result) {
-						System.out.println("success");
-					}
-
-					@Override
-					public void onFailure(Throwable t) {
-						System.out.println("1" + t);
-
-					}
-				}, Executors.newCachedThreadPool());
-
-				return null;
-
-			}
-
-		});
-
-		Futures.addCallback(session, new FutureCallback<Session>() {
-			@Override
-			public void onSuccess(Session result) {
-				System.out.println("success");
-			}
-
-			@Override
-			public void onFailure(Throwable t) {
-				System.out.println("1" + t);
-
-			}
-		}, Executors.newCachedThreadPool());
-	}
-
-	public void insertMany(DeferredResult<ResponseEntity<?>> deferredResult, SimpleTables rows) {
-
-		ListenableFuture<Session> session = cluster.connectAsync();
-
-		Futures.transformAsync(session, new AsyncFunction<Session, ResultSet>() {
-			public ListenableFuture<ResultSet> apply(Session session) throws Exception {
-				System.out.println(Thread.currentThread().getName() + "preparing statement");
-
-				ListenableFuture<PreparedStatement> prepared = session
-						.prepareAsync("insert into java_sample.simple_table(id,name, description) values (?,?, ?)");
-
-				Futures.transformAsync(prepared, new AsyncFunction<PreparedStatement, ResultSet>() {
-					public ListenableFuture<ResultSet> apply(PreparedStatement statement) throws Exception {
-						System.out.println(
-								Thread.currentThread().getName() + "preparing statement" + statement.getPreparedId());
-						BatchStatement batch = new BatchStatement(Type.LOGGED);
-
-						for (SimpleTable simpleTable : rows.getRows()) {
-							batch.add(statement.bind(UUIDs.random(), simpleTable.getName(),
-									simpleTable.getDescription()));
-						}
-
-						ListenableFuture<ResultSet> id = session.executeAsync(batch);
-
-						Futures.addCallback(id, new FutureCallback<ResultSet>() {
-							@Override
-							public void onSuccess(ResultSet result) {
-								System.out.println("success");
-								deferredResult.setResult(ResponseEntity.ok("success"));
-							}
-
-							@Override
-							public void onFailure(Throwable t) {
-								System.out.println("1" + t);
-								deferredResult.setResult(ResponseEntity.ok(t.getMessage()));
-
-							}
-						}, Executors.newCachedThreadPool());
-
-						return null;
-					}
-				});
-
-				Futures.addCallback(prepared, new FutureCallback<PreparedStatement>() {
-					@Override
-					public void onSuccess(PreparedStatement result) {
-
-					}
-
-					@Override
-					public void onFailure(Throwable t) {
-						System.out.println("2" + t);
-						deferredResult.setResult(ResponseEntity.ok(t.getMessage()));
-
-					}
-				}, Executors.newCachedThreadPool());
-
-				return null;
-
-			}
-		});
-		Futures.addCallback(session, new FutureCallback<Session>() {
-			@Override
-			public void onSuccess(Session result) {
-
-			}
-
-			@Override
-			public void onFailure(Throwable t) {
-				System.out.println("3" + t);
 				deferredResult.setResult(ResponseEntity.ok(t.getMessage()));
 
 			}
 		}, Executors.newCachedThreadPool());
+
+	}
+
+	public void insertOne(DeferredResult<ResponseEntity<?>> deferredResult, SimpleTable row) {
+
+		ListenableFuture<ResultSet> id = session
+				.executeAsync(simpleInsertPS.bind(UUIDs.random(), row.getName(), row.getDescription()));
+
+		Futures.addCallback(id, new FutureCallback<ResultSet>() {
+			@Override
+			public void onSuccess(ResultSet result) {
+				deferredResult.setResult(ResponseEntity.ok("success"));
+
+			}
+
+			@Override
+			public void onFailure(Throwable t) {
+				deferredResult.setResult(ResponseEntity.ok(t.getMessage()));
+
+			}
+		}, Executors.newCachedThreadPool());
+
+	}
+
+	/*
+	 * public void insertMany(DeferredResult<ResponseEntity<?>> deferredResult,
+	 * SimpleTables rows) {
+	 * 
+	 * ListenableFuture<Session> session = cluster.connectAsync();
+	 * 
+	 * Futures.transformAsync(session, new AsyncFunction<Session, ResultSet>() {
+	 * public ListenableFuture<ResultSet> apply(Session session) throws Exception {
+	 * System.out.println(Thread.currentThread().getName() + "preparing statement");
+	 * 
+	 * ListenableFuture<PreparedStatement> prepared = session
+	 * .prepareAsync("insert into java_sample.simple_table(id,name, description) values (?,?, ?)"
+	 * );
+	 * 
+	 * Futures.transformAsync(prepared, new AsyncFunction<PreparedStatement,
+	 * ResultSet>() { public ListenableFuture<ResultSet> apply(PreparedStatement
+	 * statement) throws Exception { System.out.println(
+	 * Thread.currentThread().getName() + "preparing statement" +
+	 * statement.getPreparedId()); BatchStatement batch = new
+	 * BatchStatement(Type.LOGGED);
+	 * 
+	 * for (SimpleTable simpleTable : rows.getRows()) {
+	 * batch.add(statement.bind(UUIDs.random(), simpleTable.getName(),
+	 * simpleTable.getDescription())); }
+	 * 
+	 * ListenableFuture<ResultSet> id = session.executeAsync(batch);
+	 * 
+	 * Futures.addCallback(id, new FutureCallback<ResultSet>() {
+	 * 
+	 * @Override public void onSuccess(ResultSet result) {
+	 * System.out.println("success");
+	 * deferredResult.setResult(ResponseEntity.ok("success")); }
+	 * 
+	 * @Override public void onFailure(Throwable t) { System.out.println("1" + t);
+	 * deferredResult.setResult(ResponseEntity.ok(t.getStackTrace()));
+	 * 
+	 * } }, Executors.newCachedThreadPool());
+	 * 
+	 * return null; } });
+	 * 
+	 * Futures.addCallback(prepared, new FutureCallback<PreparedStatement>() {
+	 * 
+	 * @Override public void onSuccess(PreparedStatement result) {
+	 * 
+	 * }
+	 * 
+	 * @Override public void onFailure(Throwable t) { System.out.println("2" + t);
+	 * deferredResult.setResult(ResponseEntity.ok(t.getStackTrace()));
+	 * 
+	 * } }, Executors.newCachedThreadPool());
+	 * 
+	 * return null;
+	 * 
+	 * } }); Futures.addCallback(session, new FutureCallback<Session>() {
+	 * 
+	 * @Override public void onSuccess(Session result) {
+	 * 
+	 * }
+	 * 
+	 * @Override public void onFailure(Throwable t) { System.out.println("3" + t);
+	 * deferredResult.setResult(ResponseEntity.ok(t.getStackTrace()));
+	 * 
+	 * } }, Executors.newCachedThreadPool()); }
+	 */
+	public void insertMany(DeferredResult<ResponseEntity<?>> deferredResult, SimpleTables rows) {
+
+		BatchStatement batch = new BatchStatement(Type.LOGGED);
+
+		for (SimpleTable simpleTable : rows.getRows()) {
+			batch.add(simpleInsertPS.bind(UUIDs.random(), simpleTable.getName(), simpleTable.getDescription()));
+		}
+
+		ListenableFuture<ResultSet> id = session.executeAsync(batch);
+
+		Futures.addCallback(id, new FutureCallback<ResultSet>() {
+			@Override
+			public void onSuccess(ResultSet result) {
+				System.out.println("success");
+				deferredResult.setResult(ResponseEntity.ok("success"));
+			}
+
+			@Override
+			public void onFailure(Throwable t) {
+				logger.error("error during insert :", t);
+				deferredResult.setResult(ResponseEntity.ok(t.getStackTrace()));
+
+			}
+		});
 	}
 
 	private static void createKeyspaceAndTables(DseSession session) {
@@ -343,44 +273,43 @@ public class SimpleRepository {
 		session.execute(createTable);
 	}
 
-	private static DseSession createConnection() {
-		DseCluster cluster = null;
-		PoolingOptions poolingOptions = new PoolingOptions();
-
-		AuthProvider authProvider = new DsePlainTextAuthProvider("sourav11b", "password");
-
-		// set pooling options
-		// Really should have multiple contact points, i.e.
-		// cluster = DseCluster.builder().addContactPoints(new String[] {"127.0.0.1",
-		// "127.0.0.2", "127.0.0.3"}).build();
-		cluster = DseCluster.builder().addContactPoint("127.0.0.1")
-				.withLoadBalancingPolicy(new TokenAwarePolicy(DCAwareRoundRobinPolicy.builder().build()))
-				// .withPoolingOptions(poolingOptions)
-				.withAuthProvider(authProvider)
-				// .withSSL()
-				.build();
-
-		// you can also create and then add other things like threadpools, load balance
-		// policys etc
-		// cluster. =
-		// DseCluster.builder().withLoadBalancingPolicy(policy).withPoolingOptions(options)...
-
-		// you can get lots of meta data, the below shows the keyspaces it can find out
-		// about
-		// this is all part of the client gossip like query process
-		System.out.println("The keyspaces known by Connection are: " + cluster.getMetadata().getKeyspaces().toString());
-
-		// you don't have to specify a consistency level, there is always default
-		System.out.println("The Default Consistency Level is: "
-				+ cluster.getConfiguration().getQueryOptions().getConsistencyLevel());
-
-		// finally create a session to connect, alternatively and what you normally will
-		// do is specify the keyspace
-		// i.e. DseSession session = cluster.connect("keyspace_name");
-		DseSession session = cluster.connect();
-		return session;
-
-	}
+	/*
+	 * private static DseSession createConnection() { DseCluster cluster = null;
+	 * PoolingOptions poolingOptions = new PoolingOptions();
+	 * 
+	 * AuthProvider authProvider = new DsePlainTextAuthProvider("sourav11b",
+	 * "password");
+	 * 
+	 * // set pooling options // Really should have multiple contact points, i.e. //
+	 * cluster = DseCluster.builder().addContactPoints(new String[] {"127.0.0.1", //
+	 * "127.0.0.2", "127.0.0.3"}).build(); cluster =
+	 * DseCluster.builder().addContactPoint("127.0.0.1")
+	 * .withLoadBalancingPolicy(new
+	 * TokenAwarePolicy(DCAwareRoundRobinPolicy.builder().build())) //
+	 * .withPoolingOptions(poolingOptions) .withAuthProvider(authProvider) //
+	 * .withSSL() .build();
+	 * 
+	 * // you can also create and then add other things like threadpools, load
+	 * balance // policys etc // cluster. = //
+	 * DseCluster.builder().withLoadBalancingPolicy(policy).withPoolingOptions(
+	 * options)...
+	 * 
+	 * // you can get lots of meta data, the below shows the keyspaces it can find
+	 * out // about // this is all part of the client gossip like query process
+	 * System.out.println("The keyspaces known by Connection are: " +
+	 * cluster.getMetadata().getKeyspaces().toString());
+	 * 
+	 * // you don't have to specify a consistency level, there is always default
+	 * System.out.println("The Default Consistency Level is: " +
+	 * cluster.getConfiguration().getQueryOptions().getConsistencyLevel());
+	 * 
+	 * // finally create a session to connect, alternatively and what you normally
+	 * will // do is specify the keyspace // i.e. DseSession session =
+	 * cluster.connect("keyspace_name"); DseSession session = cluster.connect();
+	 * return session;
+	 * 
+	 * }
+	 */
 
 	private static AsyncFunction<ResultSet, ResultSet> iterate(final int page,
 			final DeferredResult<ResponseEntity<?>> deferredResult, final List<String> results) {
@@ -391,8 +320,7 @@ public class SimpleRepository {
 				// How far we can go without triggering the blocking fetch:
 				int remainingInPage = rs.getAvailableWithoutFetching();
 
-				System.out.printf(Thread.currentThread().getName() + "Starting page %d (%d rows)%n", page,
-						remainingInPage);
+				logger.info("Starting page {} ({} rows)", page, remainingInPage);
 
 				for (Row row : rs) {
 					results.add(row.toString());
@@ -402,11 +330,12 @@ public class SimpleRepository {
 					if (--remainingInPage == 0)
 						break;
 				}
-				System.out.printf(Thread.currentThread().getName() + "Done page %d%n", page);
+
+				logger.info("Done page {}", page);
 
 				boolean wasLastPage = rs.getExecutionInfo().getPagingState() == null;
 				if (wasLastPage) {
-					System.out.println(Thread.currentThread().getName() + "Done iterating");
+					logger.info("Done through all pages");
 					deferredResult.setResult(ResponseEntity.ok(results));
 
 					return Futures.immediateFuture(rs);

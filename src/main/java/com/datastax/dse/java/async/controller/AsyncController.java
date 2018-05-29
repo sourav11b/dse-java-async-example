@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -33,13 +35,14 @@ import com.google.common.util.concurrent.ListenableFuture;
 @RestController
 public class AsyncController {
 
-	
+	static Logger logger = LoggerFactory.getLogger(AsyncController.class);
+
 	
 	@Autowired
 	SimpleRepository simpleRepository;
 
-	@RequestMapping("/selectSync")
-	public DeferredResult<ResponseEntity<?>> selectSync(@RequestParam("query") String query) {
+	@RequestMapping("/syncSelectUsingQueryParam")
+	public DeferredResult<ResponseEntity<?>> syncSelectUsingQueryParam(@RequestParam("query") String query) {
 
 		System.out.println("Query " + query);
 
@@ -52,12 +55,14 @@ public class AsyncController {
 			}
 		});
 		
-		simpleRepository.selectSync(deferredResult, query);
+		simpleRepository.syncSelectUsingQueryParam(deferredResult, query);
+		System.out.println(Thread.currentThread().getName() + "Done with main");
+
 		return deferredResult;
 	}
 
-	@RequestMapping("/selectAll")
-	public DeferredResult<ResponseEntity<?>> selectAll(@RequestParam("query") String query) {
+	@RequestMapping("/selectUsingQueryParam")
+	public DeferredResult<ResponseEntity<?>> selectUsingQueryParam(@RequestParam("query") String query) {
 
 		System.out.println("Query " + query);
 
@@ -70,12 +75,12 @@ public class AsyncController {
 			}
 		});
 		
-		simpleRepository.select(deferredResult, query);
+		simpleRepository.selectUsingQueryParam(deferredResult, query);
 		return deferredResult;
 	}
 	
-	@RequestMapping("/select")
-	public DeferredResult<ResponseEntity<?>> select(@RequestParam("pk") String pk) {
+	@RequestMapping("/selectWithPK")
+	public DeferredResult<ResponseEntity<?>> selectWithPK(@RequestParam("pk") String pk) {
 
 		System.out.println("PK " + pk);
 
@@ -111,7 +116,6 @@ public class AsyncController {
 
 		return deferredResult;
 	}
-	
 	
 	@RequestMapping(value = "/insertMany", method = RequestMethod.POST)
 	public DeferredResult<ResponseEntity<?>> insertMany(@RequestBody final SimpleTables rows) {
