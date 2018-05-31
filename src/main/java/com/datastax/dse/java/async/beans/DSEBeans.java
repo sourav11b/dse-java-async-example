@@ -1,94 +1,91 @@
 package com.datastax.dse.java.async.beans;
 
+import java.util.Iterator;
+
+import javax.annotation.PostConstruct;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
 
-import com.datastax.driver.core.AuthProvider;
+import com.datastax.driver.core.ConsistencyLevel;
+import com.datastax.driver.core.ExecutionInfo;
 import com.datastax.driver.core.HostDistance;
 import com.datastax.driver.core.PoolingOptions;
-import com.datastax.driver.core.PreparedStatement;
-import com.datastax.driver.core.Session;
+import com.datastax.driver.core.QueryOptions;
+import com.datastax.driver.core.QueryTrace;
+import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.SimpleStatement;
+import com.datastax.driver.core.SocketOptions;
+import com.datastax.driver.core.Statement;
+import com.datastax.driver.core.QueryTrace.Event;
 import com.datastax.driver.core.policies.DCAwareRoundRobinPolicy;
 import com.datastax.driver.core.policies.TokenAwarePolicy;
 import com.datastax.driver.dse.DseCluster;
 import com.datastax.driver.dse.DseSession;
-import com.datastax.driver.dse.auth.DsePlainTextAuthProvider;
-import com.google.common.util.concurrent.ListenableFuture;
 
 @Component
 public class DSEBeans {
 
+	@Value("${dse.seeds}")
+	private String[] dseSeeds;
+	
+
+
 	@Bean
 	public DseCluster cluster() {
 
-		PoolingOptions poolingOptions = new PoolingOptions().setConnectionsPerHost(HostDistance.LOCAL, 1, 2)
-				.setMaxRequestsPerConnection(HostDistance.LOCAL, 32768)
-				.setCoreConnectionsPerHost(HostDistance.LOCAL, 2);
+		PoolingOptions poolingOptions = new PoolingOptions()
+				.setCoreConnectionsPerHost(HostDistance.LOCAL, 1)
+				.setMaxConnectionsPerHost(HostDistance.LOCAL, 1)
+				.setCoreConnectionsPerHost(HostDistance.REMOTE, 1)
+				.setMaxConnectionsPerHost(HostDistance.REMOTE, 1)
+				.setHeartbeatIntervalSeconds(60)
+				.setMaxRequestsPerConnection(HostDistance.LOCAL, 20000)
+				.setMaxRequestsPerConnection(HostDistance.REMOTE, 2000);
+		;
 
-		// AuthProvider authProvider = new DsePlainTextAuthProvider("sourav11b",
-		// "password");
+		// refer to
+		// https://docs.datastax.com/en/developer/java-driver-dse/1.6/manual/pooling/
+		// for best practises and tuning
 
-		// set pooling options
-		// Really should have multiple contact points, i.e.
-		// cluster = DseCluster.builder().addContactPoints(new String[] {"127.0.0.1",
-		// "127.0.0.2", "127.0.0.3"}).build();
-		return DseCluster.builder().addContactPoint("127.0.0.1")
-				// .withLoadBalancingPolicy(new
-				// TokenAwarePolicy(DCAwareRoundRobinPolicy.builder().build()))
-				// .withPoolingOptions(poolingOptions)
+		SocketOptions so = new SocketOptions().setReadTimeoutMillis(3000).setConnectTimeoutMillis(3000);
+
+			
+		//set default consistency to LOCAL_ONE and explicitly setting metadata enabled for  token awareness to work
+		
+		QueryOptions qo = new QueryOptions().setConsistencyLevel(ConsistencyLevel.LOCAL_ONE).setMetadataEnabled(true);
+
+		 return DseCluster.builder().addContactPoints(dseSeeds)
+				.withLoadBalancingPolicy(
+						new TokenAwarePolicy(
+								DCAwareRoundRobinPolicy
+								.builder()
+								//.withLocalDc("myLocalDC")
+		                        //.withUsedHostsPerRemoteDc(2)
+		                        //.allowRemoteDCsForLocalConsistencyLevel()
+		                        .build()
+		                        )
+						)
+				.withPoolingOptions(poolingOptions)
 				// .withAuthProvider(authProvider)
 				// .withSSL()
+				// .withSocketOptions(so)
+				.withQueryOptions(qo)
+
 				.build();
-
-		// you can also create and then add other things like threadpools, load balance
-		// policys etc
-		// cluster. =
-		// DseCluster.builder().withLoadBalancingPolicy(policy).withPoolingOptions(options)...
-
-		// you can get lots of meta data, the below shows the keyspaces it can find out
-		// about
-		// this is all part of the client gossip like query process
-		// System.out.println("The keyspaces known by Connection are: " +
-		// cluster.getMetadata().getKeyspaces().toString());
-
-		// you don't have to specify a consistency level, there is always default
-		// System.out.println("The Default Consistency Level is: "
-		// + cluster.getConfiguration().getQueryOptions().getConsistencyLevel());
-
-		// finally create a session to connect, alternatively and what you normally will
-		// do is specify the keyspace
-		// i.e. DseSession session = cluster.connect("keyspace_name");
 
 	}
 
 	@Bean
 	public DseSession session() {
-
-		// you can also create and then add other things like threadpools, load balance
-		// policys etc
-		// cluster. =
-		// DseCluster.builder().withLoadBalancingPolicy(policy).withPoolingOptions(options)...
-
-		// you can get lots of meta data, the below shows the keyspaces it can find out
-		// about
-		// this is all part of the client gossip like query process
-
-		System.out.println("The pooling options: "
-				+ cluster().getConfiguration().getPoolingOptions().getMaxConnectionsPerHost(HostDistance.LOCAL));
-
-		System.out
-				.println("The keyspaces known by Connection are: " + cluster().getMetadata().getKeyspaces().toString());
-
-		// you don't have to specify a consistency level, there is always default
-		System.out.println("The Default Consistency Level is: "
-				+ cluster().getConfiguration().getQueryOptions().getConsistencyLevel());
-
-		// finally create a session to connect, alternatively and what you normally will
-		// do is specify the keyspace
-		// i.e. DseSession session = cluster.connect("keyspace_name");
-		DseSession session = cluster().connect();
+        System.out.println("Creating session bean");
+        DseSession session = cluster().connect();
+		System.out.println("Done creating session bean  : "+session);
 		return session;
 
 	}
+	
 
 }

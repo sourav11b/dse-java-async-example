@@ -11,30 +11,23 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Async;
-import org.springframework.stereotype.Service;
 import org.springframework.web.context.request.async.DeferredResult;
 
-import com.datastax.driver.core.AuthProvider;
 import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.BatchStatement.Type;
 import com.datastax.driver.core.ConsistencyLevel;
 import com.datastax.driver.core.ExecutionInfo;
-import com.datastax.driver.core.PoolingOptions;
 import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.QueryTrace;
 import com.datastax.driver.core.QueryTrace.Event;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.ResultSetFuture;
 import com.datastax.driver.core.Row;
-import com.datastax.driver.core.Session;
 import com.datastax.driver.core.SimpleStatement;
 import com.datastax.driver.core.Statement;
-import com.datastax.driver.core.policies.DCAwareRoundRobinPolicy;
-import com.datastax.driver.core.policies.TokenAwarePolicy;
 import com.datastax.driver.core.utils.UUIDs;
 import com.datastax.driver.dse.DseCluster;
 import com.datastax.driver.dse.DseSession;
-import com.datastax.driver.dse.auth.DsePlainTextAuthProvider;
 import com.datastax.dse.java.async.model.SimpleTable;
 import com.datastax.dse.java.async.model.SimpleTables;
 import com.google.common.util.concurrent.AsyncFunction;
@@ -79,7 +72,7 @@ public class SimpleRepository {
 			public void onFailure(Throwable t) {
 				logger.error("Error during processing resultSet", t);
 
-				deferredResult.setResult(ResponseEntity.ok(t.getMessage()));
+				deferredResult.setResult(ResponseEntity.ok(t));
 
 			}
 		});
@@ -215,6 +208,8 @@ public class SimpleRepository {
 	 * } }, Executors.newCachedThreadPool()); }
 	 */
 	public void insertMany(DeferredResult<ResponseEntity<?>> deferredResult, SimpleTables rows) {
+		
+		System.out.println("-----Session ID---"+session);
 
 		BatchStatement batch = new BatchStatement(Type.LOGGED);
 
@@ -273,43 +268,7 @@ public class SimpleRepository {
 		session.execute(createTable);
 	}
 
-	/*
-	 * private static DseSession createConnection() { DseCluster cluster = null;
-	 * PoolingOptions poolingOptions = new PoolingOptions();
-	 * 
-	 * AuthProvider authProvider = new DsePlainTextAuthProvider("sourav11b",
-	 * "password");
-	 * 
-	 * // set pooling options // Really should have multiple contact points, i.e. //
-	 * cluster = DseCluster.builder().addContactPoints(new String[] {"127.0.0.1", //
-	 * "127.0.0.2", "127.0.0.3"}).build(); cluster =
-	 * DseCluster.builder().addContactPoint("127.0.0.1")
-	 * .withLoadBalancingPolicy(new
-	 * TokenAwarePolicy(DCAwareRoundRobinPolicy.builder().build())) //
-	 * .withPoolingOptions(poolingOptions) .withAuthProvider(authProvider) //
-	 * .withSSL() .build();
-	 * 
-	 * // you can also create and then add other things like threadpools, load
-	 * balance // policys etc // cluster. = //
-	 * DseCluster.builder().withLoadBalancingPolicy(policy).withPoolingOptions(
-	 * options)...
-	 * 
-	 * // you can get lots of meta data, the below shows the keyspaces it can find
-	 * out // about // this is all part of the client gossip like query process
-	 * System.out.println("The keyspaces known by Connection are: " +
-	 * cluster.getMetadata().getKeyspaces().toString());
-	 * 
-	 * // you don't have to specify a consistency level, there is always default
-	 * System.out.println("The Default Consistency Level is: " +
-	 * cluster.getConfiguration().getQueryOptions().getConsistencyLevel());
-	 * 
-	 * // finally create a session to connect, alternatively and what you normally
-	 * will // do is specify the keyspace // i.e. DseSession session =
-	 * cluster.connect("keyspace_name"); DseSession session = cluster.connect();
-	 * return session;
-	 * 
-	 * }
-	 */
+
 
 	private static AsyncFunction<ResultSet, ResultSet> iterate(final int page,
 			final DeferredResult<ResponseEntity<?>> deferredResult, final List<String> results) {
@@ -336,7 +295,11 @@ public class SimpleRepository {
 				boolean wasLastPage = rs.getExecutionInfo().getPagingState() == null;
 				if (wasLastPage) {
 					logger.info("Done through all pages");
-					deferredResult.setResult(ResponseEntity.ok(results));
+					if(results.isEmpty()) {
+						deferredResult.setResult(ResponseEntity.ok(new Exception("No Results Returned")));
+
+					}	else {				deferredResult.setResult(ResponseEntity.ok(results));
+					}
 
 					return Futures.immediateFuture(rs);
 				} else {
