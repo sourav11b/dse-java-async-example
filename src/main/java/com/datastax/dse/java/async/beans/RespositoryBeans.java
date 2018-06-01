@@ -60,13 +60,6 @@ public class RespositoryBeans {
 		// now we change the CL, and it should show up as part of this execution
 		createTable.setConsistencyLevel(ConsistencyLevel.ALL);
 		session.execute(createTable);
-		System.out.println("Sleeping");
-
-		try {
-			Thread.sleep(5000);
-		} catch (InterruptedException e) {
-			e.printStackTrace();
-		}
 		
 		System.out.println("Done creating keyspace and tables");
 	}
@@ -119,6 +112,16 @@ public class RespositoryBeans {
 		return session.prepareAsync("select * from java_sample.simple_table where id=?");
 
 	}
+	
+	@Bean
+	public PreparedStatement simpleSelectBySQPS() {
+		System.out.println("creating simpleSelectBySQPS");
+
+		
+		return session.prepare("select * from java_sample.simple_table where solr_query=?").setConsistencyLevel(ConsistencyLevel.LOCAL_ONE);
+
+	}
+	
 
 
 }

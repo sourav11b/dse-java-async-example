@@ -28,6 +28,9 @@ import com.datastax.driver.core.Statement;
 import com.datastax.driver.core.utils.UUIDs;
 import com.datastax.driver.dse.DseCluster;
 import com.datastax.driver.dse.DseSession;
+import com.datastax.driver.mapping.Mapper;
+import com.datastax.driver.mapping.MappingManager;
+import com.datastax.driver.mapping.Result;
 import com.datastax.dse.java.async.model.SimpleTable;
 import com.datastax.dse.java.async.model.SimpleTables;
 import com.google.common.util.concurrent.AsyncFunction;
@@ -48,6 +51,12 @@ public class SimpleRepository {
 
 	@Autowired
 	PreparedStatement simpleSelectByPKPS;
+	
+	@Autowired
+	PreparedStatement simpleSelectBySQPS;
+	
+	@Autowired
+	Mapper<SimpleTable> mapper;
 
 	static Logger logger = LoggerFactory.getLogger(SimpleRepository.class);
 
@@ -55,7 +64,7 @@ public class SimpleRepository {
 
 		logger.info("Starting select");
 
-		final List<String> results = new ArrayList<String>();
+		final List<SimpleTable> results = new ArrayList<SimpleTable>();
 
 		logger.info("Creating statement with fetch size");
 		Statement statement = new SimpleStatement(query).setFetchSize(20);
@@ -77,7 +86,7 @@ public class SimpleRepository {
 			}
 		});
 
-		Futures.transformAsync(resultSet, iterate(10, deferredResult, results), Executors.newCachedThreadPool());
+		Futures.transformAsync(resultSet, iterate(10, deferredResult, results,mapper), Executors.newCachedThreadPool());
 		logger.info("Done with main thread");
 
 	}
@@ -101,10 +110,33 @@ public class SimpleRepository {
 
 	public void selectWithPK(DeferredResult<ResponseEntity<?>> deferredResult, String pk) {
 
-		final List<String> results = new ArrayList<String>();
+		final List<SimpleTable> results = new ArrayList<SimpleTable>();
 
 		ListenableFuture<ResultSet> resultSet = session.executeAsync(simpleSelectByPKPS.bind(UUID.fromString(pk)));
-		Futures.transformAsync(resultSet, iterate(10, deferredResult, results), Executors.newCachedThreadPool());
+		Futures.transformAsync(resultSet, iterate(10, deferredResult, results,mapper), Executors.newCachedThreadPool());
+
+		Futures.addCallback(resultSet, new FutureCallback<ResultSet>() {
+			@Override
+			public void onSuccess(ResultSet result) {
+				System.out.println("success");
+			}
+
+			@Override
+			public void onFailure(Throwable t) {
+				System.out.println("1" + t);
+				deferredResult.setResult(ResponseEntity.ok(t.getMessage()));
+
+			}
+		}, Executors.newCachedThreadPool());
+
+	}
+	
+	public void selectWithSolrQuery(DeferredResult<ResponseEntity<?>> deferredResult, String solrQuery) {
+
+		final List<SimpleTable> results = new ArrayList<SimpleTable>();
+
+		ListenableFuture<ResultSet> resultSet = session.executeAsync(simpleSelectBySQPS.bind(solrQuery));
+		Futures.transformAsync(resultSet, iterate(10, deferredResult, results,mapper), Executors.newCachedThreadPool());
 
 		Futures.addCallback(resultSet, new FutureCallback<ResultSet>() {
 			@Override
@@ -271,7 +303,7 @@ public class SimpleRepository {
 
 
 	private static AsyncFunction<ResultSet, ResultSet> iterate(final int page,
-			final DeferredResult<ResponseEntity<?>> deferredResult, final List<String> results) {
+			final DeferredResult<ResponseEntity<?>> deferredResult, final List<SimpleTable> results,Mapper<SimpleTable> mapper) {
 		return new AsyncFunction<ResultSet, ResultSet>() {
 			@Override
 			public ListenableFuture<ResultSet> apply(ResultSet rs) throws Exception {
@@ -280,9 +312,13 @@ public class SimpleRepository {
 				int remainingInPage = rs.getAvailableWithoutFetching();
 
 				logger.info("Starting page {} ({} rows)", page, remainingInPage);
+				
+				Result<SimpleTable> temp = mapper.map(rs);
 
-				for (Row row : rs) {
-					results.add(row.toString());
+				for (SimpleTable row : temp) {
+					
+					
+					results.add(row);
 					// System.out.printf(Thread.currentThread().getName() + "[page %d - %d] row =
 					// %s%n", page,
 					// remainingInPage, row);
@@ -298,13 +334,13 @@ public class SimpleRepository {
 					if(results.isEmpty()) {
 						deferredResult.setResult(ResponseEntity.ok(new Exception("No Results Returned")));
 
-					}	else {				deferredResult.setResult(ResponseEntity.ok(results));
+					}	else {				deferredResult.setResult(ResponseEntity.ok(new SimpleTables(results)));
 					}
 
 					return Futures.immediateFuture(rs);
 				} else {
 					ListenableFuture<ResultSet> future = rs.fetchMoreResults();
-					return Futures.transformAsync(future, iterate(page + 1, deferredResult, results),
+					return Futures.transformAsync(future, iterate(page + 1, deferredResult, results,mapper),
 							Executors.newCachedThreadPool());
 				}
 			}

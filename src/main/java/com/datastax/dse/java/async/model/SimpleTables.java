@@ -15,6 +15,11 @@ public class SimpleTables implements Serializable {
 	public void setRows(List<SimpleTable> rows) {
 		this.rows = rows;
 	}
+
+	public SimpleTables(List<SimpleTable> rows) {
+		super();
+		this.rows = rows;
+	}
 	 
 	 
 	

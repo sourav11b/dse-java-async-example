@@ -4,11 +4,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.async.DeferredResult;
 
@@ -45,8 +47,8 @@ public class AsyncController {
 		return deferredResult;
 	}
 
-	@RequestMapping("/selectUsingQueryParam")
-	public DeferredResult<ResponseEntity<?>> selectUsingQueryParam(@RequestParam("query") String query) {
+	@RequestMapping(value = "/selectUsingQueryParam" ,produces=MediaType.APPLICATION_JSON_VALUE )
+	public @ResponseBody DeferredResult<ResponseEntity<?>> selectUsingQueryParam(@RequestParam("query") String query) {
 
 		System.out.println("Query " + query);
 
@@ -62,6 +64,26 @@ public class AsyncController {
 		simpleRepository.selectUsingQueryParam(deferredResult, query);
 		return deferredResult;
 	}
+	
+	
+	@RequestMapping(value = "/selectWithSolrQuery" ,produces=MediaType.APPLICATION_JSON_VALUE )
+	public @ResponseBody DeferredResult<ResponseEntity<?>> selectWithSolrQuery(@RequestParam("solrQuery") String solrQuery) {
+
+		System.out.println("solrQuery " + solrQuery);
+
+		final DeferredResult<ResponseEntity<?>> deferredResult = new DeferredResult<ResponseEntity<?>>(5000l);
+		deferredResult.onTimeout(new Runnable() {
+
+			public void run() { // Retry on timeout
+				deferredResult.setErrorResult(
+						ResponseEntity.status(HttpStatus.REQUEST_TIMEOUT).body("Request timeout occurred."));
+			}
+		});
+		
+		simpleRepository.selectWithSolrQuery(deferredResult, solrQuery);
+		return deferredResult;
+	}
+	
 	
 	@RequestMapping("/selectWithPK")
 	public DeferredResult<ResponseEntity<?>> selectWithPK(@RequestParam("pk") String pk) {
