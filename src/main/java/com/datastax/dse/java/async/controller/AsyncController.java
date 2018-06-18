@@ -30,7 +30,7 @@ public class AsyncController {
 	@RequestMapping("/syncSelectUsingQueryParam")
 	public DeferredResult<ResponseEntity<?>> syncSelectUsingQueryParam(@RequestParam("query") String query) {
 
-		System.out.println("Query " + query);
+		 logger.info("Received Query " + query);
 
 		final DeferredResult<ResponseEntity<?>> deferredResult = new DeferredResult<ResponseEntity<?>>(5000l);
 		deferredResult.onTimeout(new Runnable() {
@@ -42,7 +42,7 @@ public class AsyncController {
 		});
 		
 		simpleRepository.syncSelectUsingQueryParam(deferredResult, query);
-		System.out.println(Thread.currentThread().getName() + "Done with main");
+		logger.info(Thread.currentThread().getName() + "Done with main");
 
 		return deferredResult;
 	}
@@ -50,7 +50,7 @@ public class AsyncController {
 	@RequestMapping(value = "/selectUsingQueryParam" ,produces=MediaType.APPLICATION_JSON_VALUE )
 	public @ResponseBody DeferredResult<ResponseEntity<?>> selectUsingQueryParam(@RequestParam("query") String query) {
 
-		System.out.println("Query " + query);
+		logger.info("Query " + query);
 
 		final DeferredResult<ResponseEntity<?>> deferredResult = new DeferredResult<ResponseEntity<?>>(5000l);
 		deferredResult.onTimeout(new Runnable() {
@@ -69,7 +69,7 @@ public class AsyncController {
 	@RequestMapping(value = "/selectWithSolrQuery" ,produces=MediaType.APPLICATION_JSON_VALUE )
 	public @ResponseBody DeferredResult<ResponseEntity<?>> selectWithSolrQuery(@RequestParam("solrQuery") String solrQuery) {
 
-		System.out.println("solrQuery " + solrQuery);
+		logger.info("solrQuery " + solrQuery);
 
 		final DeferredResult<ResponseEntity<?>> deferredResult = new DeferredResult<ResponseEntity<?>>(5000l);
 		deferredResult.onTimeout(new Runnable() {
@@ -88,7 +88,7 @@ public class AsyncController {
 	@RequestMapping("/selectWithPK")
 	public DeferredResult<ResponseEntity<?>> selectWithPK(@RequestParam("pk") String pk) {
 
-		System.out.println("PK " + pk);
+		logger.info("PK " + pk);
 
 		final DeferredResult<ResponseEntity<?>> deferredResult = new DeferredResult<ResponseEntity<?>>(5000l);
 		deferredResult.onTimeout(new Runnable() {
@@ -108,7 +108,7 @@ public class AsyncController {
 	@RequestMapping(value = "/insertOne", method = RequestMethod.POST)
 	public DeferredResult<ResponseEntity<?>> insertOne(@RequestBody final SimpleTable row) {
 
-		System.out.println("received request :" + row);
+		logger.info("received request :" + row);
 		final DeferredResult<ResponseEntity<?>> deferredResult = new DeferredResult<ResponseEntity<?>>(5000l);
 
 		deferredResult.onTimeout(new Runnable() {
@@ -126,7 +126,7 @@ public class AsyncController {
 	@RequestMapping(value = "/insertMany", method = RequestMethod.POST)
 	public DeferredResult<ResponseEntity<?>> insertMany(@RequestBody final SimpleTables rows) {
 
-		System.out.println("received request :" + rows);
+		logger.info("received request :" + rows);
 		 DeferredResult<ResponseEntity<?>> deferredResult = new DeferredResult<ResponseEntity<?>>(5000l);
 
 		deferredResult.onTimeout(new Runnable() {
@@ -137,6 +137,22 @@ public class AsyncController {
 			}
 		});
 		simpleRepository.insertMany(deferredResult, rows);
+		return deferredResult;
+	}
+	@RequestMapping(value = "/syncInsertMany", method = RequestMethod.POST)
+	public DeferredResult<ResponseEntity<?>> syncInsertMany(@RequestBody final SimpleTables rows) {
+
+		logger.info("received request :" + rows);
+		DeferredResult<ResponseEntity<?>> deferredResult = new DeferredResult<ResponseEntity<?>>(5000l);
+
+		deferredResult.onTimeout(new Runnable() {
+
+			public void run() { // Retry on timeout
+				deferredResult.setErrorResult(
+						ResponseEntity.status(HttpStatus.REQUEST_TIMEOUT).body("Request timeout occurred."));
+			}
+		});
+		simpleRepository.syncInsertMany(deferredResult, rows);
 		return deferredResult;
 	}
 

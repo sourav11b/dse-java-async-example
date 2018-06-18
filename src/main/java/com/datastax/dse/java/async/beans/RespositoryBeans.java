@@ -4,6 +4,8 @@ import java.util.Iterator;
 
 import javax.annotation.PostConstruct;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
@@ -18,11 +20,15 @@ import com.datastax.driver.core.Statement;
 import com.datastax.driver.core.QueryTrace.Event;
 import com.datastax.driver.dse.DseCluster;
 import com.datastax.driver.dse.DseSession;
+import com.datastax.dse.java.async.controller.AsyncController;
 import com.datastax.dse.java.async.repositories.SimpleRepository;
 import com.google.common.util.concurrent.ListenableFuture;
 
 @Component
 public class RespositoryBeans {
+	
+	static Logger logger = LoggerFactory.getLogger(RespositoryBeans.class);
+
 	
 
 
@@ -33,9 +39,8 @@ public class RespositoryBeans {
 	public void createKeyspaceAndTables() {
 		
 		
-		System.out.println("-----Session ID---"+session);
 		
-		System.out.println("Start creating keyspace and tables");
+		logger.info("Start creating keyspace and tables");
 
 
 		Statement createKS = new SimpleStatement(
@@ -51,7 +56,7 @@ public class RespositoryBeans {
 		Iterator<Event> it = trace.getEvents().iterator();
 
 		while (it.hasNext()) {
-			System.out.println(it.next());
+			logger.info(it.next().toString());
 		}
 
 		Statement createTable = new SimpleStatement(
@@ -61,7 +66,7 @@ public class RespositoryBeans {
 		createTable.setConsistencyLevel(ConsistencyLevel.ALL);
 		session.execute(createTable);
 		
-		System.out.println("Done creating keyspace and tables");
+		logger.info("Done creating keyspace and tables");
 	}
 
 	
@@ -71,7 +76,7 @@ public class RespositoryBeans {
 	
 	@Bean
 	public SimpleRepository simpleRepository() {
-		System.out.println("creating SimpleRepository");
+		logger.info("creating SimpleRepository");
 
 		return new SimpleRepository();
 	}
@@ -79,7 +84,7 @@ public class RespositoryBeans {
 	
 	@Bean
 	public PreparedStatement simpleInsertPS() {	
-		System.out.println("creating simpleInsertPS");
+		logger.info("creating simpleInsertPS");
 
 		
 		
@@ -89,8 +94,7 @@ public class RespositoryBeans {
 
 	@Bean
 	public PreparedStatement simpleSelectByPKPS() {
-		System.out.println("creating simpleSelectByPKPS");
-
+		logger.info("creating simpleSelectByPKPS");
 		
 		return session.prepare("select * from java_sample.simple_table where id=?").setConsistencyLevel(ConsistencyLevel.LOCAL_ONE);
 
@@ -99,7 +103,7 @@ public class RespositoryBeans {
 	
 	@Bean
 	public ListenableFuture<PreparedStatement> simpleInsertPSAsync() {	
-		System.out.println("creating simpleInsertPSAsync");
+		logger.info("creating simpleInsertPSAsync");
 
 		return session.prepareAsync("insert into java_sample.simple_table(id,name, description) values (?,?, ?)");
 
@@ -107,7 +111,7 @@ public class RespositoryBeans {
 	
 	@Bean
 	public ListenableFuture<PreparedStatement> simpleSelectByPKPSAsync() {
-		System.out.println("creating simpleSelectByPKPSAsync");
+		logger.info("creating simpleSelectByPKPSAsync");
 
 		return session.prepareAsync("select * from java_sample.simple_table where id=?");
 
@@ -115,7 +119,7 @@ public class RespositoryBeans {
 	
 	@Bean
 	public PreparedStatement simpleSelectBySQPS() {
-		System.out.println("creating simpleSelectBySQPS");
+		logger.info("creating simpleSelectBySQPS");
 
 		
 		return session.prepare("select * from java_sample.simple_table where solr_query=?").setConsistencyLevel(ConsistencyLevel.LOCAL_ONE);

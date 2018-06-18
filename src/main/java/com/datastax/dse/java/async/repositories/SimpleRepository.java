@@ -4,11 +4,13 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.web.context.request.async.DeferredResult;
@@ -39,6 +41,8 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 
 public class SimpleRepository {
+	
+	//or no results or exceptions change response code
 
 	@Autowired
 	DseCluster cluster;
@@ -57,6 +61,9 @@ public class SimpleRepository {
 	
 	@Autowired
 	Mapper<SimpleTable> mapper;
+	
+	@Autowired
+	ExecutorService executorService;
 
 	static Logger logger = LoggerFactory.getLogger(SimpleRepository.class);
 
@@ -84,9 +91,12 @@ public class SimpleRepository {
 				deferredResult.setResult(ResponseEntity.ok(t));
 
 			}
-		});
+		},executorService);
+		
+		//make sure a new threadpool is not getting created per request
+		//we have dedicated threadpool for database interactions
 
-		Futures.transformAsync(resultSet, iterate(10, deferredResult, results,mapper), Executors.newCachedThreadPool());
+		Futures.transformAsync(resultSet, iterate(10, deferredResult, results,mapper,executorService), executorService);
 		logger.info("Done with main thread");
 
 	}
@@ -104,7 +114,7 @@ public class SimpleRepository {
 
 		deferredResult.setResult(ResponseEntity.ok(results));
 
-		System.out.println(Thread.currentThread().getName() + "Done with syncSelectUsingQueryParam");
+		logger.info(Thread.currentThread().getName() + "Done with syncSelectUsingQueryParam");
 
 	}
 
@@ -113,21 +123,21 @@ public class SimpleRepository {
 		final List<SimpleTable> results = new ArrayList<SimpleTable>();
 
 		ListenableFuture<ResultSet> resultSet = session.executeAsync(simpleSelectByPKPS.bind(UUID.fromString(pk)));
-		Futures.transformAsync(resultSet, iterate(10, deferredResult, results,mapper), Executors.newCachedThreadPool());
+		Futures.transformAsync(resultSet, iterate(10, deferredResult, results,mapper,executorService), executorService);
 
 		Futures.addCallback(resultSet, new FutureCallback<ResultSet>() {
 			@Override
 			public void onSuccess(ResultSet result) {
-				System.out.println("success");
+				logger.info("success");
 			}
 
 			@Override
 			public void onFailure(Throwable t) {
-				System.out.println("1" + t);
+				logger.info("1" + t);
 				deferredResult.setResult(ResponseEntity.ok(t.getMessage()));
 
 			}
-		}, Executors.newCachedThreadPool());
+		}, executorService);
 
 	}
 	
@@ -136,21 +146,20 @@ public class SimpleRepository {
 		final List<SimpleTable> results = new ArrayList<SimpleTable>();
 
 		ListenableFuture<ResultSet> resultSet = session.executeAsync(simpleSelectBySQPS.bind(solrQuery));
-		Futures.transformAsync(resultSet, iterate(10, deferredResult, results,mapper), Executors.newCachedThreadPool());
+		Futures.transformAsync(resultSet, iterate(10, deferredResult, results,mapper,executorService), executorService);
 
 		Futures.addCallback(resultSet, new FutureCallback<ResultSet>() {
 			@Override
 			public void onSuccess(ResultSet result) {
-				System.out.println("success");
+				logger.info("success");
 			}
 
 			@Override
 			public void onFailure(Throwable t) {
-				System.out.println("1" + t);
 				deferredResult.setResult(ResponseEntity.ok(t.getMessage()));
 
 			}
-		}, Executors.newCachedThreadPool());
+		},executorService);
 
 	}
 
@@ -171,7 +180,7 @@ public class SimpleRepository {
 				deferredResult.setResult(ResponseEntity.ok(t.getMessage()));
 
 			}
-		}, Executors.newCachedThreadPool());
+		}, executorService);
 
 	}
 
@@ -183,7 +192,7 @@ public class SimpleRepository {
 	 * 
 	 * Futures.transformAsync(session, new AsyncFunction<Session, ResultSet>() {
 	 * public ListenableFuture<ResultSet> apply(Session session) throws Exception {
-	 * System.out.println(Thread.currentThread().getName() + "preparing statement");
+	 * logger.info(Thread.currentThread().getName() + "preparing statement");
 	 * 
 	 * ListenableFuture<PreparedStatement> prepared = session
 	 * .prepareAsync("insert into java_sample.simple_table(id,name, description) values (?,?, ?)"
@@ -191,7 +200,7 @@ public class SimpleRepository {
 	 * 
 	 * Futures.transformAsync(prepared, new AsyncFunction<PreparedStatement,
 	 * ResultSet>() { public ListenableFuture<ResultSet> apply(PreparedStatement
-	 * statement) throws Exception { System.out.println(
+	 * statement) throws Exception { logger.info(
 	 * Thread.currentThread().getName() + "preparing statement" +
 	 * statement.getPreparedId()); BatchStatement batch = new
 	 * BatchStatement(Type.LOGGED);
@@ -205,10 +214,10 @@ public class SimpleRepository {
 	 * Futures.addCallback(id, new FutureCallback<ResultSet>() {
 	 * 
 	 * @Override public void onSuccess(ResultSet result) {
-	 * System.out.println("success");
+	 * logger.info("success");
 	 * deferredResult.setResult(ResponseEntity.ok("success")); }
 	 * 
-	 * @Override public void onFailure(Throwable t) { System.out.println("1" + t);
+	 * @Override public void onFailure(Throwable t) { logger.info("1" + t);
 	 * deferredResult.setResult(ResponseEntity.ok(t.getStackTrace()));
 	 * 
 	 * } }, Executors.newCachedThreadPool());
@@ -221,7 +230,7 @@ public class SimpleRepository {
 	 * 
 	 * }
 	 * 
-	 * @Override public void onFailure(Throwable t) { System.out.println("2" + t);
+	 * @Override public void onFailure(Throwable t) { logger.info("2" + t);
 	 * deferredResult.setResult(ResponseEntity.ok(t.getStackTrace()));
 	 * 
 	 * } }, Executors.newCachedThreadPool());
@@ -234,14 +243,14 @@ public class SimpleRepository {
 	 * 
 	 * }
 	 * 
-	 * @Override public void onFailure(Throwable t) { System.out.println("3" + t);
+	 * @Override public void onFailure(Throwable t) { logger.info("3" + t);
 	 * deferredResult.setResult(ResponseEntity.ok(t.getStackTrace()));
 	 * 
 	 * } }, Executors.newCachedThreadPool()); }
 	 */
 	public void insertMany(DeferredResult<ResponseEntity<?>> deferredResult, SimpleTables rows) {
 		
-		System.out.println("-----Session ID---"+session);
+		logger.info("-----Session ID---"+session);
 
 		BatchStatement batch = new BatchStatement(Type.LOGGED);
 
@@ -254,7 +263,7 @@ public class SimpleRepository {
 		Futures.addCallback(id, new FutureCallback<ResultSet>() {
 			@Override
 			public void onSuccess(ResultSet result) {
-				System.out.println("success");
+				logger.info("success");
 				deferredResult.setResult(ResponseEntity.ok("success"));
 			}
 
@@ -264,8 +273,27 @@ public class SimpleRepository {
 				deferredResult.setResult(ResponseEntity.ok(t.getStackTrace()));
 
 			}
-		});
+		},executorService);
 	}
+	
+	
+public void syncInsertMany(DeferredResult<ResponseEntity<?>> deferredResult, SimpleTables rows) {
+		
+		logger.info("-----Session ID---"+session);
+
+		BatchStatement batch = new BatchStatement(Type.LOGGED);
+
+		for (SimpleTable simpleTable : rows.getRows()) {
+			batch.add(simpleInsertPS.bind(UUIDs.random(), simpleTable.getName(), simpleTable.getDescription()));
+		}
+
+		ResultSet result = session.execute(batch);
+		
+		deferredResult.setResult(ResponseEntity.ok("Insert Successful . "+result));
+
+		
+	}
+
 
 	private static void createKeyspaceAndTables(DseSession session) {
 		// this is using a simple statement, there are many other and better ways to
@@ -279,7 +307,7 @@ public class SimpleRepository {
 
 		// Note the consistency level, just uses the default for the cluster object if
 		// not set on the statement
-		System.out.println("The Consistency Level is: " + createKS.getConsistencyLevel());
+		logger.info("The Consistency Level is: " + createKS.getConsistencyLevel());
 		ResultSet rs = session.execute(createKS);
 		ExecutionInfo executionInfo = rs.getExecutionInfo();
 
@@ -288,7 +316,7 @@ public class SimpleRepository {
 		Iterator<Event> it = trace.getEvents().iterator();
 
 		while (it.hasNext()) {
-			System.out.println(it.next());
+			logger.info(it.next().toString());
 		}
 
 		Statement createTable = new SimpleStatement(
@@ -296,14 +324,16 @@ public class SimpleRepository {
 
 		// now we change the CL, and it should show up as part of this execution
 		createTable.setConsistencyLevel(ConsistencyLevel.ALL);
-		System.out.println("The Consistency Level is: " + createTable.getConsistencyLevel());
+		logger.info("The Consistency Level is: " + createTable.getConsistencyLevel());
 		session.execute(createTable);
 	}
 
 
 
 	private static AsyncFunction<ResultSet, ResultSet> iterate(final int page,
-			final DeferredResult<ResponseEntity<?>> deferredResult, final List<SimpleTable> results,Mapper<SimpleTable> mapper) {
+			final DeferredResult<ResponseEntity<?>> deferredResult,
+			final List<SimpleTable> results,Mapper<SimpleTable> mapper,
+			final ExecutorService executorService) {
 		return new AsyncFunction<ResultSet, ResultSet>() {
 			@Override
 			public ListenableFuture<ResultSet> apply(ResultSet rs) throws Exception {
@@ -332,7 +362,7 @@ public class SimpleRepository {
 				if (wasLastPage) {
 					logger.info("Done through all pages");
 					if(results.isEmpty()) {
-						deferredResult.setResult(ResponseEntity.ok(new Exception("No Results Returned")));
+						deferredResult.setResult(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new Exception("No Results Returned")));
 
 					}	else {				deferredResult.setResult(ResponseEntity.ok(new SimpleTables(results)));
 					}
@@ -340,8 +370,8 @@ public class SimpleRepository {
 					return Futures.immediateFuture(rs);
 				} else {
 					ListenableFuture<ResultSet> future = rs.fetchMoreResults();
-					return Futures.transformAsync(future, iterate(page + 1, deferredResult, results,mapper),
-							Executors.newCachedThreadPool());
+					return Futures.transformAsync(future, iterate(page + 1, deferredResult, results,mapper,executorService),
+							executorService);
 				}
 			}
 		};

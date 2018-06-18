@@ -20,6 +20,13 @@ public class SimpleTables implements Serializable {
 		super();
 		this.rows = rows;
 	}
+
+	public SimpleTables() {
+		super();
+	}
+	
+	
+	
 	 
 	 
 	
